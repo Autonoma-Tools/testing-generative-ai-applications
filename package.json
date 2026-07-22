@@ -1,0 +1,13 @@
+{
+  "name": "testing-generative-ai-applications",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Companion code for the Autonoma blog post 'Testing Generative AI Applications: Where to Start'.",
+  "scripts": {
+    "test:e2e": "playwright test e2e/"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

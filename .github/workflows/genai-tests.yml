@@ -1,0 +1,92 @@
+name: GenAI Testing Layers
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  # Layer 1: deterministic prompt unit tests. Fast and cheap, so it runs on
+  # every commit with no conditions.
+  prompt-unit-tests:
+    name: Layer 1 - Prompt unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run prompt unit tests
+        run: pytest tests/ -v
+
+  # Layer 2: eval-set tests. These cost real model calls and time, so they
+  # only run when prompt or eval-set files actually changed.
+  eval-set-tests:
+    name: Layer 2 - Eval sets
+    runs-on: ubuntu-latest
+    needs: prompt-unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect prompt/eval file changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            genai:
+              - 'app/prompts.py'
+              - 'app/assistant.py'
+              - 'evals/**'
+
+      - uses: actions/setup-python@v5
+        if: steps.changes.outputs.genai == 'true'
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        if: steps.changes.outputs.genai == 'true'
+        run: pip install -r requirements.txt
+
+      - name: Run eval-set tests
+        if: steps.changes.outputs.genai == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: pytest evals/ -v
+
+  # Layer 3: behavioral end-to-end tests. Needs a deployed target, so it
+  # runs against this PR's preview environment and only on pull requests.
+  behavioral-e2e-tests:
+    name: Layer 3 - Behavioral E2E
+    runs-on: ubuntu-latest
+    needs: prompt-unit-tests
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Resolve PR preview environment URL
+        id: preview
+        run: |
+          # Replace this with your preview-environment provider's status
+          # check (e.g. polling a deployment API until the environment is
+          # ready, or reading a URL your deploy step already produced).
+          echo "url=https://pr-${{ github.event.pull_request.number }}.preview.example.com" >> "$GITHUB_OUTPUT"
+
+      - name: Run behavioral E2E tests against the PR preview
+        env:
+          BASE_URL: ${{ steps.preview.outputs.url }}
+        run: npx playwright test e2e/
